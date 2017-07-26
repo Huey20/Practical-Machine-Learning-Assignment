@@ -1,0 +1,162 @@
+---
+title: "Practical Machine Learning - Course Assignment"
+author: "H.Y. Tay"
+date: "7/26/2017"
+output: html_document
+---
+# 1. Overview
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks.
+
+The objective of this project is to use data from the accelerometers on the belt, forearm, arm and dumbell of 6 participants and to predict the manner in which the exercise were performed.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 2. Data
+## a. Data source
+The dataset for this project is sourced from http://groupware.les.inf.puc-rio.br/har
+
+## b. Load packages and set seed
+```{r environment}
+set.seed(12845)
+library(caret)
+library(forecast)
+library(randomForest)
+library(knitr)
+library(lubridate)
+library(AppliedPredictiveModeling)
+library(ggplot2)
+library(dplyr)
+library(rpart)
+```
+
+## c. Read data
+```{r reading data part}
+training <- read.csv("pml-training.csv")
+testing <- read.csv("pml-testing.csv")
+
+```
+
+## d. Partioning the training set into three
+I'm partitioning my training set into 2, 70% for myTraining, 22.5% for myTesting, 7.5% for validation
+```{r partition}
+inTrain<-createDataPartition(y=training$classe,p=0.70,list=FALSE)
+myTraining<- training[inTrain,];
+data <-training[-inTrain,]
+data2 <- createDataPartition(y=data$classe,p=0.67,list=FALSE)
+myTesting <- data[data2,]
+validation <- data[-data2,]
+dim(myTraining);dim(myTesting);dim(validation)
+```
+
+### e. Processing and cleaning data
+Characteristic:
+* myTraining dataset has 160 variables and 13737 obs
+* myTesting dataset has 160 variables and 3945 obs
+* validation dataset has 160 variables and 1940 obs
+
+* Remove variables that are mostly NA
+
+```{r cleaning 1}
+AllNA    <- sapply(myTraining, function(x) mean(is.na(x))) > 0.80
+myTraining <- myTraining[, AllNA==FALSE]
+dim(myTraining)
+```
+
+* Remove unrelevant variables, e.g. user_name
+```{r cleaning 2}
+
+remove = c("X","user_name","raw_timestamp_part_1","raw_timestamp_part_2","cvtd_timestamp", "new_window","num_window")
+
+myTraining <- myTraining[, -which(names(myTraining) %in% remove)]
+dim(myTraining)
+
+```
+* Remove variables that has near zero variance
+```{r remove variance}
+nearzero <- nearZeroVar(myTraining)
+myTraining <- myTraining[,-nearzero]
+dim(myTraining)
+```
+* Remove variables that are highly correlated
+
+```{r remove corr}
+corrMatrix <- cor(na.omit(myTraining[sapply(myTraining, is.numeric)]))
+removecor = findCorrelation(corrMatrix, cutoff = .90, verbose = TRUE)
+myTraining = myTraining[,-removecor]
+dim(myTraining)
+```
+
+
+After cleaning, there's only 46 variables left.
+
+* Doing the same transformations for myTesting and testing (validation) datasets
+```{r transformations}
+
+clean1 <- colnames(myTraining)
+clean2 <- colnames(myTraining[,-46])
+myTesting <- myTesting[clean1]
+testing <- testing[clean2]
+validation <- validation[clean1]
+
+dim(myTraining); dim(myTesting);dim(validation); dim(testing)
+```
+
+*Ensuring that the datasets are of the same type
+```{r coerce data}
+for (i in 1:length(testing) ) {
+        for(j in 1:length(myTraining)) {
+        if( length( grep(names(myTraining[i]), names(testing)[j]) ) ==1)  {
+            class(testing[j]) <- class(myTraining[i])
+        }      
+    }      
+}
+```
+
+# 3. Prediction Model
+I have selected two methods - (i) Random Forest; (ii) Decision Tree - to model the regressions in the Train dataset. The most accurate model on the Test dataset will be used for the quiz. A Confusion Matrix is also plotted to better visualise the accuracy of the models.
+
+## A. Random Forest
+(i) Model fit using training set
+
+```{r RF predictor}
+modFitRF <- randomForest(classe ~. , data=myTraining)
+```
+
+(ii) Predicting error using test set
+```{r RF in sample}
+predictionsRF <- predict(modFitRF, myTesting, type = "class")
+confusionMatrix(predictionsRF, myTesting$classe)
+```
+
+RF method has accuracy of 0.9949
+
+## Decision Tree
+(i) Model fit using training set
+```{r DT predictor}
+modFitDT <- rpart(classe ~ ., data=myTraining, method="class")
+```
+(ii) Predicting error using test set
+```{r DT predictions}
+predictionsDT <- predict(modFitDT, myTesting, type = "class")
+confusionMatrix(predictionsDT, myTesting$classe)
+```
+DT method has accuracy of 0.7232
+
+## Conclusion
+Since the random forest model has higher accuracy of 0.994, I will use it to predict the test set.
+
+## 4. Applying Random Forest to the Testing dataset (quiz)
+## Out of sample prediction error
+```{r OOS}
+predictionsRF2 <- predict(modFitRF, validation, type = "class")
+confusionMatrix(predictionsRF2, validation$classe)
+```
+Based on this test, the out of sample error is likely to be small, at 0.005.
+
+## Predicting the Project Quiz
+```{r testing}
+predictTest <- predict(modFitRF, testing)
+predictTest
+```
